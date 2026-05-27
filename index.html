@@ -1197,30 +1197,30 @@
           <div style="font-size:13px;color:rgba(255,255,255,0.6);">Más que mover carga. Protegemos operaciones críticas.</div>
         </div>
       </div>
-      <div class="contact-form fade-in">
+      <form class="contact-form fade-in" id="contactForm">
         <div class="form-row">
           <div class="form-group">
             <label>Nombre completo *</label>
-            <input type="text" placeholder="Tu nombre" />
+            <input type="text" name="nombre" placeholder="Tu nombre" required />
           </div>
           <div class="form-group">
             <label>Empresa *</label>
-            <input type="text" placeholder="Nombre de tu empresa" />
+            <input type="text" name="empresa" placeholder="Nombre de tu empresa" required />
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Correo electrónico *</label>
-            <input type="email" placeholder="tucorreo@empresa.com" />
+            <input type="email" name="_replyto" placeholder="tucorreo@empresa.com" required />
           </div>
           <div class="form-group">
             <label>Teléfono</label>
-            <input type="tel" placeholder="+52 55 0000 0000" />
+            <input type="tel" name="telefono" placeholder="+52 55 0000 0000" />
           </div>
         </div>
         <div class="form-group">
           <label>Servicio de interés</label>
-          <select>
+          <select name="servicio">
             <option value="">Selecciona un servicio...</option>
             <option>Servicios Spot</option>
             <option>Consolidados</option>
@@ -1235,10 +1235,10 @@
         </div>
         <div class="form-group">
           <label>Cuéntanos sobre tu operación</label>
-          <textarea placeholder="Describe brevemente tu necesidad logística: volumen, rutas, frecuencia, requerimientos especiales..."></textarea>
+          <textarea name="mensaje" placeholder="Describe brevemente tu necesidad logística: volumen, rutas, frecuencia, requerimientos especiales..."></textarea>
         </div>
-        <button class="btn-submit" onclick="handleSubmit(this)">Enviar solicitud →</button>
-      </div>
+        <button type="submit" class="btn-submit">Enviar solicitud →</button>
+      </form>
     </div>
   </div>
 </section>
@@ -1334,15 +1334,36 @@
     if (/\d/.test(t) && !t.includes('/')) counterObserver.observe(el);
   });
 
-  // Form submit
-  function handleSubmit(btn) {
+  // Form submit — Formspree
+  const contactForm = document.getElementById('contactForm');
+  contactForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = contactForm.querySelector('button[type="submit"]');
     btn.textContent = 'Enviando...';
     btn.disabled = true;
-    setTimeout(() => {
-      btn.textContent = '✓ Solicitud enviada — Te contactamos pronto';
-      btn.style.background = '#38A169';
-    }, 1500);
-  }
+
+    try {
+      const response = await fetch('https://formspree.io/f/mkoepyrb', {
+        method: 'POST',
+        body: new FormData(contactForm),
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (response.ok) {
+        btn.textContent = '✓ Solicitud enviada — Te contactamos pronto';
+        btn.style.background = '#38A169';
+        contactForm.reset();
+      } else {
+        btn.textContent = 'Error al enviar — Intenta de nuevo';
+        btn.style.background = '#E53E3E';
+        btn.disabled = false;
+      }
+    } catch (error) {
+      btn.textContent = 'Error de conexión — Intenta de nuevo';
+      btn.style.background = '#E53E3E';
+      btn.disabled = false;
+    }
+  });
 </script>
 </body>
 </html>
