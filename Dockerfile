@@ -1,8 +1,9 @@
 # Usamos Nginx, un servidor web gratuito y ligero
 FROM nginx:alpine
 
-# Copiamos tu página al lugar donde Nginx la busca
+# Copiamos tu página y los assets al lugar donde Nginx la busca
 COPY index.html /usr/share/nginx/html/index.html
+COPY imagenes/ /usr/share/nginx/html/imagenes/
 
 # Creamos el directorio de templates y el archivo de configuración
 RUN mkdir -p /etc/nginx/templates && \
