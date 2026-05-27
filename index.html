@@ -842,14 +842,13 @@
     }
 
     /* ── SERVICES CAROUSEL ── */
-    #servicios { background: var(--platinum); padding: 100px 0 100px 5%; }
-    #servicios .section-header { padding-right: 5%; margin-bottom: 3rem; }
+    #servicios { background: var(--platinum); padding: 100px 5%; }
+    #servicios .section-header { margin-bottom: 3rem; }
     .carousel-wrapper {
       position: relative;
     }
     .carousel-track-outer {
       overflow: hidden;
-      padding-bottom: 2rem;
     }
     .carousel-track {
       display: flex;
@@ -858,11 +857,10 @@
       user-select: none;
       transition: transform 0.5s cubic-bezier(0.25,0.46,0.45,0.94);
       will-change: transform;
-      padding-right: 5%;
     }
     .carousel-track.dragging { cursor: grabbing; transition: none; }
     .service-card-img {
-      flex: 0 0 360px;
+      flex: 0 0 calc((100% - 3rem) / 3);
       height: 460px;
       border-radius: 14px;
       overflow: hidden;
@@ -941,41 +939,48 @@
       line-height: 1.6;
     }
 
-    /* Carousel arrows */
-    .carousel-arrows {
-      display: flex;
-      gap: 0.75rem;
-      margin-top: 2rem;
-      padding-right: 5%;
-      justify-content: flex-end;
-    }
-    .carousel-btn {
-      width: 48px; height: 48px;
+    /* Carousel floating arrows */
+    .carousel-float-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 52px; height: 52px;
       border-radius: 50%;
-      border: 1.5px solid rgba(37,99,235,0.25);
-      background: rgba(255,255,255,0.65);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      border: 1.5px solid rgba(37,99,235,0.2);
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 4px 24px rgba(13,31,60,0.14);
       display: flex; align-items: center; justify-content: center;
       cursor: pointer;
-      transition: background 0.2s, border-color 0.2s, transform 0.2s;
+      z-index: 10;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
       color: var(--navy);
     }
-    .carousel-btn:hover {
+    .carousel-float-btn:hover {
       background: var(--cobalt);
       border-color: var(--cobalt);
       color: white;
-      transform: scale(1.05);
+      box-shadow: 0 6px 28px rgba(37,99,235,0.3);
     }
-    .carousel-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .carousel-float-btn:disabled {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
+    .carousel-float-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    .carousel-btn-prev { left: -26px; }
+    .carousel-btn-next { right: -26px; }
 
     @media (max-width: 1024px) {
-      .service-card-img { flex: 0 0 300px; height: 400px; }
+      .service-card-img { flex: 0 0 calc((100% - 1.5rem) / 2); height: 420px; }
+      .carousel-btn-prev { left: -20px; }
+      .carousel-btn-next { right: -20px; }
     }
     @media (max-width: 768px) {
-      #servicios { padding: 70px 0 70px 5%; }
-      .service-card-img { flex: 0 0 280px; height: 360px; }
-      .carousel-arrows { padding-right: 5%; }
+      #servicios { padding: 70px 5%; }
+      .service-card-img { flex: 0 0 82%; height: 370px; }
+      .carousel-float-btn { display: none; }
     }
 
     /* ── LANGUAGE SELECTOR ── */
@@ -1148,6 +1153,9 @@
     <p class="section-desc" data-i18n="services_desc">Operamos como un centro de control que gestiona una red de proveedores verificados. Cada servicio diseñado para cadenas de suministro críticas.</p>
   </div>
   <div class="carousel-wrapper">
+    <button class="carousel-float-btn carousel-btn-prev" id="carousel-prev" aria-label="Anterior">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
     <div class="carousel-track-outer" id="carouselOuter">
       <div class="carousel-track" id="carouselTrack">
 
@@ -1257,14 +1265,9 @@
 
       </div>
     </div>
-    <div class="carousel-arrows">
-      <button class="carousel-btn" id="carousel-prev" aria-label="Anterior">
-        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-      </button>
-      <button class="carousel-btn" id="carousel-next" aria-label="Siguiente">
-        <svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>
-      </button>
-    </div>
+    <button class="carousel-float-btn carousel-btn-next" id="carousel-next" aria-label="Siguiente">
+      <svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
   </div>
 </section>
 
@@ -2067,27 +2070,36 @@
     let currentIndex = 0;
     let isDragging = false;
     let startX = 0;
-    let scrollLeft = 0;
+    let startOffset = 0;
 
     function getCardWidth() {
       const card = track.querySelector('.service-card-img');
-      if (!card) return 360;
-      return card.offsetWidth + 24; // card + gap
+      if (!card) return 0;
+      const gap = parseFloat(getComputedStyle(track).gap) || 24;
+      return card.offsetWidth + gap;
     }
 
     function getVisibleCount() {
-      const ow = track.parentElement.offsetWidth;
-      return Math.max(1, Math.floor(ow / getCardWidth()));
+      const card = track.querySelector('.service-card-img');
+      if (!card) return 3;
+      const containerW = track.parentElement.offsetWidth;
+      return Math.round(containerW / card.offsetWidth);
     }
 
     function getMaxIndex() {
-      const cards = track.querySelectorAll('.service-card-img');
-      return Math.max(0, cards.length - getVisibleCount());
+      const total = track.querySelectorAll('.service-card-img').length;
+      return Math.max(0, total - getVisibleCount());
+    }
+
+    function updateArrows() {
+      if (prevBtn) prevBtn.disabled = currentIndex === 0;
+      if (nextBtn) nextBtn.disabled = currentIndex >= getMaxIndex();
     }
 
     function scrollToIndex(idx) {
       currentIndex = Math.max(0, Math.min(idx, getMaxIndex()));
       track.style.transform = `translateX(-${currentIndex * getCardWidth()}px)`;
+      updateArrows();
     }
 
     prevBtn.addEventListener('click', () => scrollToIndex(currentIndex - 1));
@@ -2097,13 +2109,13 @@
     track.addEventListener('mousedown', e => {
       isDragging = true;
       startX = e.pageX;
-      scrollLeft = currentIndex * getCardWidth();
+      startOffset = currentIndex * getCardWidth();
       track.classList.add('dragging');
     });
     window.addEventListener('mousemove', e => {
       if (!isDragging) return;
       const delta = startX - e.pageX;
-      track.style.transform = `translateX(-${scrollLeft + delta}px)`;
+      track.style.transform = `translateX(-${startOffset + delta}px)`;
     });
     window.addEventListener('mouseup', e => {
       if (!isDragging) return;
@@ -2126,6 +2138,9 @@
     }, { passive: true });
 
     window.addEventListener('resize', () => scrollToIndex(currentIndex));
+
+    // Init arrow state
+    updateArrows();
   })();
 
   // Navbar scroll effect
