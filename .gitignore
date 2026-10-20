@@ -13,3 +13,6 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# e-stack: sello local de revisión de Codex
+.codex-review-stamp

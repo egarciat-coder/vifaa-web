@@ -10,9 +10,9 @@ base_commit: b9eadd15891d3ccbaae07caa2a34d120eba672a5
 status: active
 started: 2026-10-20
 last_device: wsl-pc
-components: []
+components: [tooling-git]
 procesos: []
-paths: []
+paths: [.estack.conf, .githooks/, .gitattributes, .gitignore, CHANGELOG.md]
 schema: false
 migrations: []
 env_vars: []
@@ -28,7 +28,15 @@ pr:
 
 ## Plan aprobado
 
-<copia del plan del Paso 4 de /change, tal cual se aprobó>
+Adopción de estack-git (mismo plan que hub/common-services en F7), aprobada por el usuario el 2026-10-20
+("resuelve todos los pendientes", tras el plan del punto 3).
+Tipo `improve` (Engineer → QA), PATCH, entrada en [Unreleased].
+- `.estack.conf`: integration=main, production=main, deploy-branches=main (verificado 2026-10-20).
+- `.githooks/` v2, `.gitattributes` LF, sello en `.gitignore`.
+- La rama del cambio no se publica antes de integrar.
+- Integración = push a `main` → auto-deploy a PRODUCCIÓN (sin cambios de código de la app):
+  gate de producción propio, requiere confirmación explícita del usuario antes de `integrate publish --prod-confirmed`.
+- Retorno: revertir el commit (otro deploy a producción, también con confirmación).
 
 ## Estado / handoff
 

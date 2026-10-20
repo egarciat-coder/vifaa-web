@@ -8,6 +8,13 @@ Versioning: [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### 🔧 Técnico (interno)
+- **Adopción de `estack-git`** (e-stack 0.8.1, `/change` improve CHG-20261020-74aeb3, 2026-10-20): `.estack.conf` (sin QA: `main` es integración y producción, cada integración pide confirmación de producción; `deploy-branches = main`, verificado), hooks v2 en `.githooks/` (`pre-commit` con sello de Codex por contenido, `commit-msg` con trailer `Change-Id`, `pre-push` que exige `ESTACK_PROD_CONFIRMED=1` para empujar a `main` y bloquea contenido de otros cambios), `.gitattributes` con LF para los hooks y `.codex-review-stamp` en `.gitignore`.
+  Ya no se commitea directo en `main`: todo cambio, incluidos los arreglos urgentes y los reverts, se hace en una
+  rama de cambio (`estack-git new fix <slug>`), porque `pre-push` exige `Change-Id`. Los hooks solo actúan en los
+  clones con `core.hooksPath=.githooks`: en cada clon/equipo, `estack-git install-hooks` (enforcement local; un
+  clon sin activar sigue pudiendo empujar a `main`).
+
 ---
 
 ## [1.2.0] — 2026-06-16

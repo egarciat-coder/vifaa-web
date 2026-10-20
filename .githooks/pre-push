@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# estack-hooks v2 — pre-push: que un push no publique contenido ajeno al cambio autorizado.
+#
+# - Producción distinta de integración: prohibido actualizarla o borrarla por push directo (solo por PR).
+# - Producción = integración (repo sin ambiente QA): cada push es un deploy a producción → exige
+#   ESTACK_PROD_CONFIRMED=1, que solo se define tras la confirmación explícita del usuario.
+#   `production = none` en .estack.conf declara que el repo no despliega (p. ej. e-stack).
+# - Integración: sin force, sin borrado; si ESTACK_EXPECT_BASE está definido, el remoto debe estar exactamente
+#   en ese SHA; todos los commits nuevos (merges incluidos) con un solo Change-Id; un merge sin Change-Id solo
+#   si es puro (su árbol es el merge automático de sus padres); merges solo de la base o del propio cambio.
+#   Los commits que ya están en producción (`<remoto>/<producción>`) no cuentan como contenido ajeno: alinear
+#   integración con producción tras una promoción (p. ej. un release/* por cherry-pick) ya pasó por su PR.
+# - Rama de cambio (chg-*): sus commits propios (merges incluidos) llevan su Change-Id.
+# - Otras ramas: sin restricciones (legado).
+# Falla cerrado: si no puede validar (refs ausentes, git falla), rechaza.
+# Escape (requiere autorización explícita, queda en el reporte): ESTACK_HOOK_BYPASS="<motivo>".
+# Sin protección del lado servidor (plan gratuito), esto es enforcement local: --no-verify lo evita.
+set -u
+
+remote_arg="$1"; url="${2:-}"
+zero="0000000000000000000000000000000000000000"
+top="$(git rev-parse --show-toplevel)"
+conf="$top/.estack.conf"
+cget() { [ -f "$conf" ] && git config -f "$conf" --get "estack.$1" 2>/dev/null; }
+
+if [ -n "${ESTACK_HOOK_BYPASS:-}" ]; then
+  echo "⚠️ pre-push de e-stack OMITIDO: $ESTACK_HOOK_BYPASS" >&2
+  exit 0
+fi
+
+# Nombre del remoto aunque el push se haga por URL.
+remote="$remote_arg"
+if ! git remote get-url "$remote" >/dev/null 2>&1; then
+  remote=""
+  for r in $(git remote); do
+    if [ "$(git remote get-url "$r" 2>/dev/null)" = "$url" ] || [ "$(git remote get-url --push "$r" 2>/dev/null)" = "$url" ]; then remote="$r"; break; fi
+  done
+  [ -n "$remote" ] || remote=origin
+fi
+
+integ="$(cget integration)"
+if [ -z "$integ" ]; then
+  if git show-ref -q --verify "refs/remotes/$remote/develop"; then integ=develop
+  else
+    integ="$(git symbolic-ref -q --short "refs/remotes/$remote/HEAD" 2>/dev/null)"; integ="${integ#"$remote"/}"
+    [ -n "$integ" ] || integ=main
+  fi
+fi
+prod="$(cget production)"
+if [ -z "$prod" ]; then
+  if git show-ref -q --verify "refs/remotes/$remote/main"; then prod=main
+  elif git show-ref -q --verify "refs/remotes/$remote/master"; then prod=master
+  else prod=main
+  fi
+fi
+
+# Producción ya publicada: sus commits entraron por PR aprobado y no son contenido ajeno al integrar.
+# El SHA se toma del remoto (ls-remote), no de la ref local, que es manipulable; si no se puede
+# consultar o no existe localmente, no hay exención (se valida todo, como en v1).
+prodref=""
+if [ "$prod" != none ] && [ "$prod" != "$integ" ]; then
+  psha="$(GIT_TERMINAL_PROMPT=0 git ls-remote "${url:-$remote}" "refs/heads/$prod" 2>/dev/null | awk 'NR==1{print $1}')"
+  if [ -n "$psha" ] && git cat-file -e "$psha^{commit}" 2>/dev/null; then prodref="$psha"; fi
+fi
+
+re='chg-([0-9]{8})-([0-9a-f]{6})'
+fail=0
+trailer() { git log -1 --format='%(trailers:key=Change-Id,valueonly,separator=%x2C)' "$1" | tr -d ' \r\n'; }
+deny() { echo "❌ pre-push: $*" >&2; fail=1; }
+is_merge() { [ "$(git rev-list --parents -n 1 "$1" | wc -w | tr -d ' ')" -gt 2 ]; }
+pure_merge() { # merge de 2 padres cuyo árbol es exactamente el merge automático
+  local p1 p2 auto
+  set -- $(git rev-list --parents -n 1 "$1")
+  [ $# -eq 3 ] || return 1
+  auto="$(git merge-tree --write-tree "$2" "$3" 2>/dev/null)" || return 1
+  [ "$(printf '%s\n' "$auto" | head -1)" = "$(git rev-parse "$1^{tree}")" ]
+}
+
+check_range() { # check_range <id esperado o vacío> <rev-list args...>  → valida cada commit (merges incluidos)
+  local want="$1"; shift
+  local list c t
+  list="$(git rev-list "$@")" || { deny "no se pudo calcular el rango ($*) — haz fetch y reintenta."; return; }
+  IDS=""
+  for c in $list; do
+    t="$(trailer "$c")"
+    if [ -z "$t" ]; then
+      if is_merge "$c" && pure_merge "$c"; then continue; fi
+      deny "sin Change-Id: $(git log -1 --format='%h %s' "$c")"
+      continue
+    fi
+    if [ -n "$want" ] && [ "$t" != "$want" ]; then
+      deny "$(git log -1 --format='%h %s' "$c") tiene Change-Id '$t' (se espera $want): contenido de otro cambio."
+      continue
+    fi
+    case " $IDS " in *" $t "*) ;; *) IDS="$IDS $t" ;; esac
+  done
+}
+
+while read -r lref lsha rref rsha; do
+  [ -n "${rref:-}" ] || continue
+  name="${rref#refs/heads/}"
+  [ "$name" = "$rref" ] && continue   # tags, notes u otras refs
+
+  if [ "$prod" != none ] && [ "$name" = "$prod" ]; then
+    if [ "$prod" != "$integ" ]; then
+      deny "push directo a '$prod' prohibido — la promoción a producción es por PR ($integ → $prod)."
+      continue
+    fi
+    if [ "${ESTACK_PROD_CONFIRMED:-}" != 1 ]; then
+      deny "'$prod' es integración y producción a la vez: este push despliega producción. Requiere confirmación explícita del usuario (ESTACK_PROD_CONFIRMED=1)."
+      continue
+    fi
+  fi
+
+  if [ "$name" = "$integ" ]; then
+    if [ "$lsha" = "$zero" ]; then deny "borrar '$integ' está prohibido."; continue; fi
+    if [ "$rsha" != "$zero" ] && ! git merge-base --is-ancestor "$rsha" "$lsha" 2>/dev/null; then
+      deny "'$integ' no avanza en fast-forward (force-push prohibido)."; continue
+    fi
+    if [ -n "${ESTACK_EXPECT_BASE:-}" ] && [ "$rsha" != "$ESTACK_EXPECT_BASE" ]; then
+      deny "'$integ' remoto está en ${rsha:0:12}, no en la base verificada ${ESTACK_EXPECT_BASE:0:12} — alguien integró antes: re-sincroniza y re-prueba."
+      continue
+    fi
+    if [ "$rsha" = "$zero" ]; then check_range "" "$lsha" --not --remotes="$remote"
+    else check_range "" "$rsha..$lsha" ${prodref:+--not "$prodref"}
+    fi
+    n=0; for t in $IDS; do n=$((n + 1)); done
+    if [ "$n" -gt 1 ]; then
+      allow=" ${ESTACK_ALLOW_MULTI:-} "; ok=1
+      for t in $IDS; do case "$allow" in *" $t "*) ;; *) ok=0 ;; esac; done
+      [ "$ok" -eq 1 ] || deny "el push mezcla varios cambios ($IDS) — integra uno a la vez (o ESTACK_ALLOW_MULTI=\"<ids>\" con autorización)."
+    fi
+    if [ "$rsha" != "$zero" ]; then
+      for m in $(git rev-list --merges "$rsha..$lsha"); do
+        set -- $(git rev-list --parents -n 1 "$m"); shift 2
+        for p in "$@"; do
+          git merge-base --is-ancestor "$p" "$rsha" && continue
+          [ -n "$prodref" ] && git merge-base --is-ancestor "$p" "$prodref" && continue
+          for c in $(git rev-list "$rsha..$p" ${prodref:+--not "$prodref"}); do
+            t="$(trailer "$c")"
+            [ -z "$t" ] && is_merge "$c" && pure_merge "$c" && continue
+            case " $IDS " in *" $t "*) ;; *) deny "merge $(git log -1 --format=%h "$m") trae $(git log -1 --format=%h "$c"), que no es de la base ni del cambio."; break ;; esac
+          done
+        done
+      done
+    fi
+    continue
+  fi
+
+  if [[ "$name" =~ $re ]]; then
+    [ "$lsha" = "$zero" ] && continue
+    id="CHG-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+    excl="refs/remotes/$remote/$integ"
+    git show-ref -q --verify "$excl" || excl="refs/heads/$integ"
+    if ! git show-ref -q --verify "$excl"; then
+      deny "no existe $remote/$integ ni $integ local para validar $name — haz fetch y reintenta."
+      continue
+    fi
+    if [ "$rsha" != "$zero" ] && git cat-file -e "$rsha^{commit}" 2>/dev/null; then check_range "$id" "$lsha" --not "$rsha" "$excl"
+    else check_range "$id" "$lsha" --not "$excl"
+    fi
+  fi
+done
+
+exit "$fail"

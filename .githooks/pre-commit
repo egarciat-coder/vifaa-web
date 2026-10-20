@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# estack-hooks v2 — pre-commit: gate de la segunda opinión de Codex (ver roles/engineer.md).
+#
+# Exige una revisión de Codex reciente DEL CONTENIDO QUE SE VA A COMMITEAR. El sello (`.codex-review-stamp`)
+# guarda el hash del árbol staged al revisar (`git write-tree`); si el índice cambió después, el commit se
+# bloquea. LÍMITE: es un marcador local, no una prueba criptográfica; no impide escribir el sello a mano.
+#
+# Sellar tras revisar:  git add <archivos> && git write-tree > .codex-review-stamp
+# Exento: commits que solo tocan docs/changes/ (registro, manifiesto y handoff del cambio).
+set -euo pipefail
+
+if [ -n "${SKIP_CODEX_CHECK:-}" ]; then
+  exit 0
+fi
+
+only_changes_docs=1
+while IFS= read -r -d '' f; do
+  case "$f" in docs/changes/*) ;; *) only_changes_docs=0; break ;; esac
+done < <(git diff --cached --name-only -z)
+if [ "$only_changes_docs" -eq 1 ] && [ -n "$(git diff --cached --name-only -z | head -c1)" ]; then
+  exit 0
+fi
+
+STAMP=".codex-review-stamp"
+
+if [ ! -f "$STAMP" ]; then
+  echo "❌ Falta revisión de Codex: no existe $STAMP. Corre la revisión y sella con: git write-tree > $STAMP (o SKIP_CODEX_CHECK=1 si Codex no está disponible)." >&2
+  exit 1
+fi
+
+STAMP_MTIME=$(stat -c %Y "$STAMP" 2>/dev/null || stat -f %m "$STAMP")
+NOW=$(date +%s)
+AGE=$(( NOW - STAMP_MTIME ))
+
+if [ "$AGE" -lt 0 ] || [ "$AGE" -gt 1800 ]; then
+  echo "❌ Revisión de Codex vencida o con fecha inválida (hace $((AGE/60)) min, máx 30). Vuelve a correrla y a sellar." >&2
+  exit 1
+fi
+
+REVISADO=$(head -1 "$STAMP" | tr -d '[:space:]')
+ACTUAL=$(git write-tree)
+
+if [ "$REVISADO" != "$ACTUAL" ]; then
+  echo "❌ El contenido staged cambió después de la revisión de Codex (sello ${REVISADO:0:7}…, índice ${ACTUAL:0:7}…). Vuelve a revisar y a sellar." >&2
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# estack-hooks v2 — commit-msg: agrega o valida el trailer `Change-Id:` a partir del nombre de la rama.
+# Rama de cambio: <tipo>/chg-yyyymmdd-xxxxxx-<slug>  →  Change-Id: CHG-yyyymmdd-xxxxxx
+# Fuera de una rama de cambio (o con HEAD separado, p. ej. durante un rebase) no hace nada.
+set -u
+
+msg="$1"
+branch="$(git symbolic-ref -q --short HEAD 2>/dev/null)" || exit 0
+re='chg-([0-9]{8})-([0-9a-f]{6})'
+[[ "$branch" =~ $re ]] || exit 0
+id="CHG-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+
+current="$(git interpret-trailers --parse < "$msg" | sed -n 's/^Change-Id: *//p' | tr -d '\r')"
+if [ -z "$current" ]; then
+  git interpret-trailers --in-place --trailer "Change-Id: $id" "$msg"
+  exit 0
+fi
+for c in $current; do
+  if [ "$c" != "$id" ]; then
+    echo "❌ El mensaje trae Change-Id: $c, pero la rama $branch pertenece a $id. No se mezclan cambios en una rama." >&2
+    exit 1
+  fi
+done
+exit 0
