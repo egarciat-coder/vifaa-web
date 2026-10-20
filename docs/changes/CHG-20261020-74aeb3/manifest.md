@@ -7,7 +7,7 @@ type: improve
 branch: improve/chg-20261020-74aeb3-adopcion-estack-git
 base: main
 base_commit: b9eadd15891d3ccbaae07caa2a34d120eba672a5
-status: active
+status: ready
 started: 2026-10-20
 last_device: wsl-pc
 components: [tooling-git]
@@ -42,10 +42,13 @@ Tipo `improve` (Engineer → QA), PATCH, entrada en [Unreleased].
 
 | Rol / paso | Estado | Pruebas y resultado | Equipo | Fecha |
 |---|---|---|---|---|
+| /engineer | ✅ | .estack.conf, hooks v2, .gitattributes, .gitignore, CHANGELOG; Codex real: sin hallazgos | wsl-pc | 2026-10-20 |
+| /qa | ✅ | pre-push: push a main sin confirmación bloqueado; commit-msg agrega Change-Id | wsl-pc | 2026-10-20 |
 
 ### Pendientes
 
--
+- **Gate de producción:** `integrate publish --prod-confirmed` solo tras confirmación explícita del usuario (push a `main` = deploy a producción).
+- En cada clon/equipo: `estack-git install-hooks` (o `git config core.hooksPath .githooks`).
 
 ## Cambios concurrentes y estrategia
 
